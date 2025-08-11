@@ -1,0 +1,66 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Neo-themed trading interface */
+@layer base {
+  :root {
+    --background: 210 15% 8%;
+    --foreground: 195 100% 85%;
+    --card: 215 20% 12%;
+    --card-foreground: 195 95% 90%;
+    --primary: 165 100% 50%;
+    --primary-foreground: 215 20% 12%;
+    --secondary: 240 15% 15%;
+    --secondary-foreground: 195 85% 80%;
+    --muted: 220 10% 20%;
+    --muted-foreground: 195 50% 60%;
+    --accent: 290 100% 60%;
+    --accent-foreground: 215 20% 12%;
+    --destructive: 0 85% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 195 50% 25%;
+    --input: 220 15% 18%;
+    --ring: 165 100% 50%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background: linear-gradient(135deg, hsl(210, 15%, 8%) 0%, hsl(220, 20%, 12%) 100%);
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .neo-glow {
+    box-shadow: 0 0 20px rgba(20, 184, 166, 0.3), 0 0 40px rgba(20, 184, 166, 0.1);
+  }
+  
+  .neo-border {
+    border: 1px solid rgba(20, 184, 166, 0.4);
+    background: rgba(20, 184, 166, 0.05);
+  }
+  
+  .indicator-positive {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.05) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+  }
+  
+  .indicator-negative {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0.05) 100%);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+  
+  .tab-active {
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.3) 0%, rgba(20, 184, 166, 0.1) 100%);
+    border: 1px solid rgba(20, 184, 166, 0.5);
+    box-shadow: 0 0 15px rgba(20, 184, 166, 0.2);
+  }
+}
