@@ -26,14 +26,29 @@ export class BinanceWebSocketService {
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 5;
   private messageReceiveTime: Map<string, number> = new Map();
+  private lastDataReceived: Map<string, number> = new Map();
+  private dataGapTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     this.connect();
+    this.startGapDetection();
+  }
+
+  private startGapDetection() {
+    // Check for data gaps every 30 seconds
+    this.dataGapTimer = setInterval(() => {
+      const now = Date.now();
+      this.lastDataReceived.forEach((lastTime, symbol) => {
+        const timeSinceLastData = now - lastTime;
+        if (timeSinceLastData > 60000) { // 1 minute gap
+          console.warn(`⚠️ No data received for ${symbol} in ${Math.round(timeSinceLastData / 1000)}s - possible subscription gap`);
+        }
+      });
+    }, 30000);
   }
 
   private connect() {
     try {
-      // Subscribe to futures streams for all trading pairs including ETHUSDT
       const streams = [
         'btcusdt@ticker',
         'ethusdt@ticker',
@@ -47,10 +62,7 @@ export class BinanceWebSocketService {
         'dogeusdt@kline_1m'
       ];
 
-      // Use Binance Futures WebSocket URL
       const streamUrl = `wss://fstream.binance.com/stream?streams=${streams.join('/')}`;
-      console.log('🚀 Connecting to Binance Futures WebSocket:', streamUrl);
-      
       this.ws = new WebSocket(streamUrl);
 
       this.ws.onopen = () => {
@@ -62,7 +74,6 @@ export class BinanceWebSocketService {
         const receiveTime = Date.now();
         try {
           const message = JSON.parse(event.data);
-          console.log('📦 Raw Futures WebSocket message:', message);
           this.handleMessage(message, receiveTime);
         } catch (error) {
           console.error('❌ Error parsing WebSocket message:', error);
@@ -85,22 +96,19 @@ export class BinanceWebSocketService {
   }
 
   private handleMessage(message: any, receiveTime: number) {
-    // Handle combined stream format: {stream: "btcusdt@ticker", data: {...}}
     if (message.stream && message.data) {
       const streamParts = message.stream.split('@');
-      const symbol = streamParts[0].toUpperCase(); // Convert to uppercase (btcusdt -> BTCUSDT)
+      const symbol = streamParts[0].toUpperCase();
       const type = streamParts[1];
       
-      // Calculate delay from Binance timestamp to our receive time
+      // Update last data received time for gap detection
+      this.lastDataReceived.set(symbol, receiveTime);
+      
       const binanceTime = message.data.E || message.data.k?.T || Date.now();
       const delay = receiveTime - binanceTime;
       
-      console.log(`📈 Processing ${type} data for ${symbol} (FUTURES) with ${delay}ms delay:`, message.data);
-      
-      // Store the delay for this symbol
       this.messageReceiveTime.set(symbol, delay);
       
-      // Notify subscribers
       this.subscribers.forEach((callback, subscriberKey) => {
         if (subscriberKey === symbol || subscriberKey === 'all') {
           const processedData = {
@@ -109,12 +117,9 @@ export class BinanceWebSocketService {
             symbol,
             delay: delay
           };
-          console.log(`🎯 Sending futures data to subscriber ${subscriberKey} (${delay}ms delay):`, processedData);
           callback(processedData);
         }
       });
-    } else {
-      console.log('⚠️ Unknown message format:', message);
     }
   }
 
@@ -140,22 +145,28 @@ export class BinanceWebSocketService {
   subscribe(symbol: string, callback: (data: any) => void) {
     console.log(`🔔 Subscribing to ${symbol} data`);
     this.subscribers.set(symbol, callback);
+    this.lastDataReceived.set(symbol, Date.now());
   }
 
   unsubscribe(symbol: string) {
     console.log(`🔕 Unsubscribing from ${symbol} data`);
     this.subscribers.delete(symbol);
     this.messageReceiveTime.delete(symbol);
+    this.lastDataReceived.delete(symbol);
   }
 
   disconnect() {
-    console.log('👋 Disconnecting from Binance WebSocket');
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+    if (this.dataGapTimer) {
+      clearInterval(this.dataGapTimer);
+      this.dataGapTimer = null;
+    }
     this.subscribers.clear();
     this.messageReceiveTime.clear();
+    this.lastDataReceived.clear();
   }
 }
 

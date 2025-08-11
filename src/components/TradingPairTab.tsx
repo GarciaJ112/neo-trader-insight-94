@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { binanceWS } from '../services/binanceWebSocket';
@@ -36,12 +35,9 @@ const TradingPairTab = ({ symbol, isActive }: TradingPairTabProps) => {
   useEffect(() => {
     if (!isActive) return;
 
-    console.log(`🎯 Setting up futures data handler for ${symbol}`);
     setConnectionStatus('Connecting to Futures...');
 
     const handleData = (data: any) => {
-      console.log(`📊 Received futures data for ${symbol}:`, data);
-      
       // Handle both ticker and kline data
       let price = 0;
       let volume = 0;
@@ -50,14 +46,11 @@ const TradingPairTab = ({ symbol, isActive }: TradingPairTabProps) => {
         price = parseFloat(data.c || data.price || '0');
         volume = parseFloat(data.v || data.volume || '0');
       } else if (data.type === 'kline_1m' && data.k) {
-        // Extract from kline data structure
-        price = parseFloat(data.k.c || '0'); // Close price
-        volume = parseFloat(data.k.v || '0'); // Volume
+        price = parseFloat(data.k.c || '0');
+        volume = parseFloat(data.k.v || '0');
       }
       
       const delay = data.delay || 0;
-      
-      console.log(`💰 Extracted price: ${price}, volume: ${volume} for ${symbol}`);
       
       if (price > 0) {
         setConnectionStatus('Connected to Futures');
@@ -77,11 +70,8 @@ const TradingPairTab = ({ symbol, isActive }: TradingPairTabProps) => {
         if (!isCalculating) {
           setIsCalculating(true);
           
-          // Get current price and volume histories
           const currentPriceHistory = [...priceHistory, price].slice(-100);
           const currentVolumeHistory = [...volumeHistory, volume].slice(-100);
-          
-          console.log(`🔢 Sending to worker: ${currentPriceHistory.length} prices, ${currentVolumeHistory.length} volumes for ${symbol}`);
           
           workerManager.calculateIndicators(
             symbol,
@@ -89,8 +79,6 @@ const TradingPairTab = ({ symbol, isActive }: TradingPairTabProps) => {
             currentVolumeHistory,
             price,
             (result) => {
-              console.log(`⚡ Worker calculated indicators for ${symbol} in ${result.processingTime.toFixed(2)}ms:`, result.indicators);
-              
               if (result.indicators) {
                 const displayIndicators = formatIndicators(result.indicators, price, delay);
                 setIndicators(displayIndicators);
@@ -129,13 +117,10 @@ const TradingPairTab = ({ symbol, isActive }: TradingPairTabProps) => {
   }, [symbol, isActive, priceHistory, volumeHistory, isCalculating]);
 
   const formatIndicators = (values: IndicatorValues, currentPrice: number, delay: number): IndicatorDisplay[] => {
-    // Add safety checks for undefined values
     if (!values) {
       console.error('❌ formatIndicators received undefined values');
       return [];
     }
-
-    console.log(`📋 Formatting indicators for ${symbol}:`, values);
 
     return [
       {

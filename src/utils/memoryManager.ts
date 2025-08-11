@@ -14,8 +14,6 @@ class MemoryManager {
   private readonly maxAge = 300000; // 5 minutes
 
   start(): void {
-    console.log('🧹 Starting memory manager');
-    
     // Run cleanup every minute
     this.cleanupInterval = setInterval(() => {
       this.performCleanup();
@@ -46,8 +44,6 @@ class MemoryManager {
       cleanup,
       timestamp: Date.now()
     });
-
-    console.log(`🔗 Added subscription: ${id} (${this.subscriptions.size} total)`);
   }
 
   removeSubscription(id: string): void {
@@ -55,7 +51,6 @@ class MemoryManager {
     if (subscription) {
       subscription.cleanup();
       this.subscriptions.delete(id);
-      console.log(`🔗 Removed subscription: ${id} (${this.subscriptions.size} total)`);
     }
   }
 
@@ -72,25 +67,13 @@ class MemoryManager {
       }
     });
 
-    if (cleanedCount > 0) {
-      console.log(`🧹 Cleaned up ${cleanedCount} old subscriptions`);
-    }
-
     // Force garbage collection if available (dev only)
     if (typeof window !== 'undefined' && 'gc' in window && process.env.NODE_ENV === 'development') {
       (window as any).gc();
     }
-
-    // Log memory usage if available
-    if ('memory' in performance) {
-      const memInfo = (performance as any).memory;
-      console.log(`📊 Memory: ${Math.round(memInfo.usedJSHeapSize / 1024 / 1024)}MB used, ${Math.round(memInfo.totalJSHeapSize / 1024 / 1024)}MB total`);
-    }
   }
 
   cleanup(): void {
-    console.log('🧹 Performing full cleanup');
-
     // Clear all subscriptions
     this.subscriptions.forEach(subscription => {
       subscription.cleanup();
@@ -108,8 +91,6 @@ class MemoryManager {
 
     // Cleanup debouncer
     signalDebouncer.cleanup();
-
-    console.log('✅ Full cleanup completed');
   }
 
   getStats(): { subscriptions: number; memoryUsage?: number } {

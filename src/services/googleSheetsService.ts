@@ -25,7 +25,6 @@ class GoogleSheetsService {
   setConfig(config: GoogleSheetsConfig): void {
     this.config = config;
     localStorage.setItem('googleSheetsConfig', JSON.stringify(config));
-    console.log('📊 Google Sheets configuration saved');
   }
 
   getConfig(): GoogleSheetsConfig | null {
@@ -155,27 +154,27 @@ class GoogleSheetsService {
       signal.indicators.macd?.line || 0,
       signal.indicators.macd?.signal || 0,
       signal.indicators.ma5 || 0,
-      signal.indicators.ma8 || 0, // Added ma8
-      signal.indicators.ma13 || 0, // Added ma13
+      signal.indicators.ma8 || 0,
+      signal.indicators.ma13 || 0,
       signal.indicators.ma20 || 0,
-      signal.indicators.ma21 || 0, // Added ma21
-      signal.indicators.ma34 || 0, // Added ma34
+      signal.indicators.ma21 || 0,
+      signal.indicators.ma34 || 0,
       signal.indicators.ma50 || 0,
       signal.indicators.bollingerUpper || 0,
       signal.indicators.bollingerLower || 0,
-      signal.indicators.bollingerMiddle || 0, // Added bollingerMiddle
+      signal.indicators.bollingerMiddle || 0,
       signal.indicators.currentPrice || signal.indicators.price || 0,
       signal.indicators.volume || 0,
-      signal.indicators.avgVolume || 0, // Added avgVolume
+      signal.indicators.avgVolume || 0,
       signal.indicators.volumeSpike || false,
       signal.indicators.cvd || 0,
       signal.indicators.cvdTrend || 'neutral',
-      signal.indicators.cvdSlope || 0, // Added cvdSlope
+      signal.indicators.cvdSlope || 0,
       signal.active,
       signal.executed || false,
       signal.executedAt ? new Date(signal.executedAt).toISOString() : '',
       signal.pnl || '',
-      JSON.stringify(signal.conditions || {}) // Added conditions as JSON
+      JSON.stringify(signal.conditions || {})
     ]];
 
     const response = await fetch(
@@ -210,7 +209,6 @@ class GoogleSheetsService {
     this.accessToken = null;
     this.tokenExpiry = 0;
     localStorage.removeItem('googleSheetsConfig');
-    console.log('🗑️ Google Sheets configuration cleared');
   }
 }
 
