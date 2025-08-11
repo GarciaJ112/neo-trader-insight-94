@@ -19,6 +19,10 @@ interface WorkerResponse {
   };
 }
 
+// Store CVD history for each symbol
+const cvdHistory = new Map<string, number[]>();
+const maxHistoryLength = 100;
+
 // RSI calculation
 function calculateRSI(prices: number[], period = 14): number {
   if (prices.length < period + 1) return 50;
@@ -113,6 +117,94 @@ function calculateVolumeSpike(volumes: number[], period = 20): { avgVolume: numb
   return { avgVolume, volumeSpike };
 }
 
+// CVD calculation with proper price-volume analysis
+function updateCVD(symbol: string, priceData: number[], volumeData: number[]): number {
+  if (priceData.length < 2 || volumeData.length < 2) return 0;
+
+  const cvdValues = cvdHistory.get(symbol) || [];
+  
+  // Calculate CVD for all price points if this is the first time
+  if (cvdValues.length === 0) {
+    let runningCVD = 0;
+    for (let i = 1; i < Math.min(priceData.length, volumeData.length); i++) {
+      const prevPrice = priceData[i - 1];
+      const currentPrice = priceData[i];
+      const volume = volumeData[i];
+      
+      if (currentPrice > prevPrice) {
+        runningCVD += volume; // Buying pressure
+      } else if (currentPrice < prevPrice) {
+        runningCVD -= volume; // Selling pressure
+      }
+      
+      cvdValues.push(runningCVD);
+    }
+  } else {
+    // Update with latest data point
+    const prevPrice = priceData[priceData.length - 2];
+    const currentPrice = priceData[priceData.length - 1];
+    const volume = volumeData[volumeData.length - 1];
+    
+    const lastCVD = cvdValues[cvdValues.length - 1] || 0;
+    let newCVD = lastCVD;
+    
+    if (currentPrice > prevPrice) {
+      newCVD += volume;
+    } else if (currentPrice < prevPrice) {
+      newCVD -= volume;
+    }
+    
+    cvdValues.push(newCVD);
+  }
+  
+  // Trim history to max length
+  if (cvdValues.length > maxHistoryLength) {
+    cvdValues.splice(0, cvdValues.length - maxHistoryLength);
+  }
+  
+  cvdHistory.set(symbol, cvdValues);
+  return cvdValues[cvdValues.length - 1] || 0;
+}
+
+// CVD Slope calculation using linear regression
+function calculateCVDSlope(symbol: string, lookbackPeriod = 5): number {
+  const cvdValues = cvdHistory.get(symbol) || [];
+  if (cvdValues.length < lookbackPeriod + 1) return 0;
+
+  const recentCVD = cvdValues.slice(-lookbackPeriod - 1);
+  if (recentCVD.length < 2) return 0;
+
+  // Calculate linear regression slope
+  const n = recentCVD.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+  for (let i = 0; i < n; i++) {
+    sumX += i;
+    sumY += recentCVD[i];
+    sumXY += i * recentCVD[i];
+    sumX2 += i * i;
+  }
+
+  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  return slope;
+}
+
+// CVD Trend analysis
+function calculateCVDTrend(symbol: string, lookbackPeriod = 10): 'bullish' | 'bearish' | 'neutral' {
+  const cvdValues = cvdHistory.get(symbol) || [];
+  if (cvdValues.length < lookbackPeriod) return 'neutral';
+
+  const recentCVD = cvdValues.slice(-lookbackPeriod);
+  const firstValue = recentCVD[0];
+  const lastValue = recentCVD[recentCVD.length - 1];
+  
+  const trendStrength = (lastValue - firstValue) / Math.abs(firstValue || 1);
+  
+  if (trendStrength > 0.1) return 'bullish';
+  if (trendStrength < -0.1) return 'bearish';
+  return 'neutral';
+}
+
 self.onmessage = function(e: MessageEvent<WorkerMessage>) {
   const { type, payload } = e.data;
 
@@ -124,21 +216,35 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
       // Calculate all indicators
       const rsi = calculateRSI(priceData);
       const macd = calculateMACD(priceData);
-      const ma5 = calculateMA(priceData, 5);
-      const ma20 = calculateMA(priceData, 20);
-      const ma50 = calculateMA(priceData, 50);
+      
+      // Calculate all EMAs (5, 8, 13, 20, 21, 34, 50)
+      const ma5 = calculateEMA(priceData, 5);
+      const ma8 = calculateEMA(priceData, 8);
+      const ma13 = calculateEMA(priceData, 13);
+      const ma20 = calculateEMA(priceData, 20);
+      const ma21 = calculateEMA(priceData, 21);
+      const ma34 = calculateEMA(priceData, 34);
+      const ma50 = calculateEMA(priceData, 50);
+      
       const bollinger = calculateBollingerBands(priceData);
       const volumeAnalysis = calculateVolumeSpike(volumeData);
 
-      // Simulate CVD calculation (simplified for worker)
+      // Calculate CVD with proper price-volume analysis
+      const cvd = updateCVD(symbol, priceData, volumeData);
+      const cvdSlope = calculateCVDSlope(symbol);
+      const cvdTrend = calculateCVDTrend(symbol);
+
       const currentVolume = volumeData[volumeData.length - 1] || 0;
-      const cvd = currentVolume * (Math.random() > 0.5 ? 1 : -1) * Math.random() * 1000;
       
       const indicators = {
         rsi,
         macd,
         ma5,
+        ma8,
+        ma13,
         ma20,
+        ma21,
+        ma34,
         ma50,
         bollingerUpper: bollinger.upper,
         bollingerLower: bollinger.lower,
@@ -149,7 +255,8 @@ self.onmessage = function(e: MessageEvent<WorkerMessage>) {
         price: currentPrice,
         openInterest: currentVolume * 0.1, // Simplified
         cvd,
-        cvdTrend: cvd > 0 ? 'bullish' : cvd < 0 ? 'bearish' : 'neutral'
+        cvdTrend,
+        cvdSlope
       };
 
       const processingTime = performance.now() - startTime;
