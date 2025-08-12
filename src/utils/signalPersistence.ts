@@ -70,7 +70,7 @@ class SignalPersistenceManager {
         await indexedDBService.saveSignal(signal);
       } else {
         // Fallback to localStorage
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         
         // Remove existing signal for same symbol/strategy if exists
         history.signals = history.signals.filter(
@@ -106,7 +106,23 @@ class SignalPersistenceManager {
     }
   }
 
-  getSignalHistory(): SignalHistory {
+  async getSignalHistory(): Promise<SignalHistory> {
+    try {
+      // Try to get from Google Sheets first
+      if (googleSheetsService.isConfigured()) {
+        const sheetsSignals = await googleSheetsService.readSignalsFromSheet();
+        if (sheetsSignals.length > 0) {
+          return {
+            signals: sheetsSignals,
+            lastUpdate: Date.now()
+          };
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load from Google Sheets, falling back to local storage:', error);
+    }
+
+    // Fallback to local storage
     try {
       const stored = localStorage.getItem(this.storageKey);
       if (stored) {
@@ -124,7 +140,7 @@ class SignalPersistenceManager {
       if (this.isIndexedDBReady) {
         return await indexedDBService.getActiveSignals();
       } else {
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         return history.signals.filter(signal => signal.active && !signal.executed);
       }
     } catch (error) {
@@ -135,11 +151,17 @@ class SignalPersistenceManager {
 
   async getSignalsBySymbol(symbol: string): Promise<TradingSignal[]> {
     try {
+      // Try Google Sheets first
+      if (googleSheetsService.isConfigured()) {
+        return await googleSheetsService.getSignalsBySymbol(symbol);
+      }
+      
+      // Fallback to local/IndexedDB
       if (this.isIndexedDBReady) {
         const allSignals = await indexedDBService.getSignals();
         return allSignals.filter(signal => signal.symbol === symbol);
       } else {
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         return history.signals.filter(signal => signal.symbol === symbol);
       }
     } catch (error) {
@@ -154,7 +176,7 @@ class SignalPersistenceManager {
         const allSignals = await indexedDBService.getSignals();
         return allSignals.filter(signal => signal.strategy === strategy);
       } else {
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         return history.signals.filter(signal => signal.strategy === strategy);
       }
     } catch (error) {
@@ -175,7 +197,7 @@ class SignalPersistenceManager {
           console.log(`🔕 Deactivated signal ${signalId}`);
         }
       } else {
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         const signal = history.signals.find(s => s.id === signalId);
         
         if (signal) {
@@ -213,7 +235,7 @@ class SignalPersistenceManager {
           console.log(`✅ Marked signal ${signalId} as executed at ${executionPrice}`);
         }
       } else {
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         const signal = history.signals.find(s => s.id === signalId);
         
         if (signal) {
@@ -263,7 +285,7 @@ class SignalPersistenceManager {
       if (this.isIndexedDBReady) {
         signals = await indexedDBService.getSignals();
       } else {
-        const history = this.getSignalHistory();
+        const history = await this.getSignalHistory();
         signals = history.signals;
       }
 

@@ -21,6 +21,15 @@ class GoogleSheetsService {
   private config: GoogleSheetsConfig | null = null;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
+  
+  // Static configuration - will be updated when you provide the JSON key and Sheet ID
+  private static readonly DEFAULT_CONFIG = {
+    email: 'univerigrok@gmail.com',
+    sheetName: 'Signals',
+    // These will be set when you provide them
+    spreadsheetId: '1FnFPo-6Zbhgci7rl6sW-Wf4w1vlf3qbio5q1QDVzS-w', // temporary default
+    serviceAccountKey: '' // will be set when provided
+  };
 
   setConfig(config: GoogleSheetsConfig): void {
     this.config = config;
@@ -34,6 +43,15 @@ class GoogleSheetsService {
     if (stored) {
       this.config = JSON.parse(stored);
       return this.config;
+    }
+    
+    // Use static config if available
+    if (GoogleSheetsService.DEFAULT_CONFIG.serviceAccountKey) {
+      return {
+        spreadsheetId: GoogleSheetsService.DEFAULT_CONFIG.spreadsheetId,
+        sheetName: GoogleSheetsService.DEFAULT_CONFIG.sheetName,
+        serviceAccountKey: GoogleSheetsService.DEFAULT_CONFIG.serviceAccountKey
+      };
     }
     
     return null;
@@ -133,6 +151,101 @@ class GoogleSheetsService {
     return `${message}.${signatureB64}`;
   }
 
+  async readSignalsFromSheet(): Promise<any[]> {
+    const config = this.getConfig();
+    if (!config) {
+      throw new Error('Google Sheets not configured');
+    }
+
+    const accessToken = await this.getAccessToken();
+    
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${config.spreadsheetId}/values/${config.sheetName}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('❌ Failed to read from Google Sheets:', error);
+      throw new Error(`Failed to read from sheet: ${error}`);
+    }
+
+    const data = await response.json();
+    const rows = data.values || [];
+    
+    if (rows.length === 0) {
+      return [];
+    }
+
+    // Skip header row and convert to signal objects
+    const signals = rows.slice(1).map((row: any[]) => {
+      try {
+        return {
+          id: row[0] || '',
+          symbol: row[1] || '',
+          strategy: row[2] || '',
+          signal: row[3] || '',
+          timestamp: row[4] ? new Date(row[4]).getTime() : Date.now(),
+          entryPrice: parseFloat(row[5]) || 0,
+          takeProfit: parseFloat(row[6]) || 0,
+          stopLoss: parseFloat(row[7]) || 0,
+          indicators: {
+            rsi: parseFloat(row[8]) || 0,
+            macd: {
+              line: parseFloat(row[9]) || 0,
+              signal: parseFloat(row[10]) || 0,
+              macd: (parseFloat(row[9]) || 0) - (parseFloat(row[10]) || 0)
+            },
+            ma5: parseFloat(row[11]) || 0,
+            ma8: parseFloat(row[12]) || 0,
+            ma13: parseFloat(row[13]) || 0,
+            ma20: parseFloat(row[14]) || 0,
+            ma21: parseFloat(row[15]) || 0,
+            ma34: parseFloat(row[16]) || 0,
+            ma50: parseFloat(row[17]) || 0,
+            bollingerUpper: parseFloat(row[18]) || 0,
+            bollingerLower: parseFloat(row[19]) || 0,
+            bollingerMiddle: parseFloat(row[20]) || 0,
+            currentPrice: parseFloat(row[21]) || 0,
+            volume: parseFloat(row[22]) || 0,
+            avgVolume: parseFloat(row[23]) || 0,
+            volumeSpike: row[24] === 'true',
+            cvd: parseFloat(row[25]) || 0,
+            cvdTrend: row[26] || 'neutral',
+            cvdSlope: parseFloat(row[27]) || 0
+          },
+          active: row[28] === 'true',
+          executed: row[29] === 'true',
+          executedAt: row[30] ? new Date(row[30]).getTime() : undefined,
+          pnl: row[31] ? parseFloat(row[31]) : undefined,
+          conditions: row[32] ? JSON.parse(row[32]) : {}
+        };
+      } catch (error) {
+        console.warn('Failed to parse signal row:', row, error);
+        return null;
+      }
+    }).filter(Boolean);
+
+    console.log(`📊 Read ${signals.length} signals from Google Sheets`);
+    return signals;
+  }
+
+  async getSignalsBySymbol(symbol: string): Promise<any[]> {
+    try {
+      const allSignals = await this.readSignalsFromSheet();
+      return allSignals.filter(signal => signal.symbol === symbol);
+    } catch (error) {
+      console.error('Failed to get signals by symbol from Google Sheets:', error);
+      return [];
+    }
+  }
+
   async appendSignalToSheet(signal: any): Promise<void> {
     const config = this.getConfig();
     if (!config) {
@@ -209,6 +322,15 @@ class GoogleSheetsService {
     this.accessToken = null;
     this.tokenExpiry = 0;
     localStorage.removeItem('googleSheetsConfig');
+  }
+
+  static setStaticConfig(spreadsheetId: string, serviceAccountKey: string): void {
+    GoogleSheetsService.DEFAULT_CONFIG.spreadsheetId = spreadsheetId;
+    GoogleSheetsService.DEFAULT_CONFIG.serviceAccountKey = serviceAccountKey;
+  }
+
+  static getCSVHeaders(): string {
+    return 'ID,Symbol,Strategy,Signal,Timestamp,Entry Price,Take Profit,Stop Loss,RSI,MACD Line,MACD Signal,MA5,MA8,MA13,MA20,MA21,MA34,MA50,Bollinger Upper,Bollinger Lower,Bollinger Middle,Current Price,Volume,Avg Volume,Volume Spike,CVD,CVD Trend,CVD Slope,Active,Executed,Executed At,PnL,Conditions';
   }
 }
 

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -136,6 +135,15 @@ const GoogleSheetsConfig = () => {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="p-3 bg-muted rounded-lg">
+          <h4 className="font-medium mb-2">Static Configuration</h4>
+          <div className="text-sm space-y-1">
+            <div><strong>Email:</strong> univerigrok@gmail.com</div>
+            <div><strong>Sheet Name:</strong> Signals</div>
+            <div><strong>Status:</strong> {isConfigured ? 'Configured' : 'Awaiting JSON key and Sheet ID'}</div>
+          </div>
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="spreadsheetId">Spreadsheet ID</Label>
           <Input
@@ -153,7 +161,7 @@ const GoogleSheetsConfig = () => {
             id="sheetName"
             value={sheetName}
             onChange={(e) => setSheetName(e.target.value)}
-            placeholder="Sheet1"
+            placeholder="Signals"
             disabled={isLoading}
           />
         </div>

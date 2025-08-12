@@ -1,7 +1,7 @@
-
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { signalPersistence } from '../utils/signalPersistence';
 import type { IndicatorValues } from '../utils/indicators';
+import { strategyTracker } from '../utils/strategyTracker';
 
 interface ScalpingStrategyProps {
   symbol: string;
@@ -91,6 +91,11 @@ const ScalpingStrategy = ({ symbol, currentPrice, indicators }: ScalpingStrategy
 
   const strategy = checkScalpingConditions();
 
+  // Track strategy conditions for "all green" detection
+  React.useEffect(() => {
+    strategyTracker.updateConditions(symbol, 'scalping', strategy.conditions);
+  }, [symbol, strategy.conditions]);
+
   // Save signal if conditions are met
   if (strategy.allConditionsMet) {
     const signalId = signalPersistence.generateSignalId(symbol, 'scalping', Date.now());
@@ -119,7 +124,8 @@ const ScalpingStrategy = ({ symbol, currentPrice, indicators }: ScalpingStrategy
         volume: indicators.volume || 0,
         volumeSpike: indicators.volumeSpike || false,
         cvd: indicators.cvd || 0,
-        cvdTrend: indicators.cvdTrend || 'neutral'
+        cvdTrend: indicators.cvdTrend || 'neutral',
+        cvdSlope: indicators.cvdSlope || 0
       },
       conditions: strategy.conditions,
       active: true

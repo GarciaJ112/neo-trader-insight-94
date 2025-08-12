@@ -1,10 +1,10 @@
-
 import { useState, useEffect } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { signalPersistence, type TradingSignal } from '../utils/signalPersistence';
 import GoogleSheetsConfig from './GoogleSheetsConfig';
+import { fileLogger } from '../services/fileLogger';
 
 const SignalHistory = () => {
   const [signals, setSignals] = useState<TradingSignal[]>([]);
@@ -19,8 +19,8 @@ const SignalHistory = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const loadSignals = () => {
-    const history = signalPersistence.getSignalHistory();
+  const loadSignals = async () => {
+    const history = await signalPersistence.getSignalHistory();
     setSignals(history.signals);
   };
 
@@ -55,12 +55,21 @@ const SignalHistory = () => {
     return 'bg-yellow-500/20';
   };
 
+  const handleDownloadLogs = () => {
+    fileLogger.downloadLogs();
+  };
+
+  const handleClearLogs = () => {
+    fileLogger.clearLogs();
+  };
+
   return (
     <div className="space-y-4">
       <Tabs defaultValue="history" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="history">Signal History</TabsTrigger>
           <TabsTrigger value="sheets">Google Sheets</TabsTrigger>
+          <TabsTrigger value="logs">Trading Logs</TabsTrigger>
         </TabsList>
         
         <TabsContent value="history" className="space-y-4">
@@ -223,7 +232,45 @@ const SignalHistory = () => {
         </TabsContent>
         
         <TabsContent value="sheets">
-          <GoogleSheetsConfig />
+          <div className="space-y-4">
+            <GoogleSheetsConfig />
+            
+            <div className="p-4 neo-border rounded-lg bg-card/50">
+              <h3 className="text-lg font-semibold text-primary mb-4">CSV Headers for Google Sheets</h3>
+              <div className="p-3 bg-muted rounded-lg">
+                <code className="text-xs break-all">
+                  {googleSheetsService.constructor.getCSVHeaders()}
+                </code>
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Copy these headers to the first row of your Google Sheets "Signals" table.
+              </p>
+            </div>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="logs" className="space-y-4">
+          <div className="p-4 neo-border rounded-lg bg-card/50">
+            <h3 className="text-lg font-semibold text-primary mb-4">Trading Logs</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Logs when all strategy indicators turn green simultaneously.
+            </p>
+            
+            <div className="flex gap-2 mb-4">
+              <Button onClick={handleDownloadLogs} variant="outline">
+                Download Logs
+              </Button>
+              <Button onClick={handleClearLogs} variant="destructive">
+                Clear Logs
+              </Button>
+            </div>
+            
+            <div className="p-3 bg-muted rounded-lg max-h-96 overflow-y-auto">
+              <pre className="text-xs whitespace-pre-wrap">
+                {fileLogger.getLogsAsText() || 'No logs yet...'}
+              </pre>
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
