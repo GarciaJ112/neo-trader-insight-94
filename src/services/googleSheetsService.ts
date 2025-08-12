@@ -17,7 +17,7 @@ export interface GoogleSheetsCredentials {
   client_x509_cert_url: string;
 }
 
-class GoogleSheetsService {
+export class GoogleSheetsService {
   private config: GoogleSheetsConfig | null = null;
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
