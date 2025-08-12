@@ -2,6 +2,8 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { signalPersistence } from '../utils/signalPersistence';
 import type { IndicatorValues } from '../utils/indicators';
+import { strategyConditionsManager } from '../utils/strategyConditions';
+import StrategyConfigDialog from './StrategyConfigDialog';
 
 interface PumpStrategyProps {
   symbol: string;
@@ -20,39 +22,62 @@ const PumpStrategy = ({ symbol, currentPrice, indicators }: PumpStrategyProps) =
     );
   }
 
-  // Relaxed pump mode strategy conditions
+  // Get configurable conditions for this symbol
+  const config = strategyConditionsManager.getConditions(symbol, 'pump');
+
+  // Dynamic pump mode strategy conditions based on configuration
   const checkPumpConditions = () => {
     const entryPrice = currentPrice;
-    const takeProfit = entryPrice * 1.03; // +3% for pump mode
-    const stopLoss = entryPrice * 0.99; // -1% stop loss
+    const takeProfit = entryPrice * (1 + config.takeProfitPercent / 100);
+    const stopLoss = entryPrice * (1 - config.stopLossPercent / 100);
     
-    // Step 1: Volume (> AvgVolume × 2) - Relaxed from 2.5x
+    // Step 1: Volume based on config
     const volumeValue = indicators.volume || 0;
     const avgVolumeValue = indicators.avgVolume || 0;
-    const volumeCondition = volumeValue > avgVolumeValue * 2;
+    const volumeCondition = volumeValue > avgVolumeValue * config.volumeMultiplier;
     
-    // Step 2: RSI (50 < RSI < 85)
+    // Step 2: RSI based on config
     const rsiValue = indicators.rsi || 0;
-    const rsiCondition = rsiValue > 50 && rsiValue < 85;
+    const rsiCondition = rsiValue >= config.rsiMin && rsiValue <= config.rsiMax;
     
-    // Step 3: Moving Averages (Price > EMA13 AND EMA5 > EMA13)
-    const ma5Value = indicators.ma5 || 0;
-    const ma13Value = indicators.ma13 || 0;
-    const maCondition = currentPrice > ma13Value && ma5Value > ma13Value;
+    // Step 3: Moving Averages based on config
+    let maCondition = true;
+    if (config.useMA5 && config.useMA13) {
+      const ma5Value = indicators.ma5 || 0;
+      const ma13Value = indicators.ma13 || 0;
+      maCondition = currentPrice > ma13Value && ma5Value > ma13Value;
+    }
     
-    // Step 4: MACD (MACD Line > Signal AND MACD Line > 0)
-    const macdLineValue = indicators.macd?.line || 0;
-    const macdSignalValue = indicators.macd?.signal || 0;
-    const macdCondition = macdLineValue > macdSignalValue && macdLineValue > 0;
+    // Step 4: MACD based on config
+    let macdCondition = true;
+    if (config.macdLineAboveSignal) {
+      const macdLineValue = indicators.macd?.line || 0;
+      const macdSignalValue = indicators.macd?.signal || 0;
+      macdCondition = macdLineValue > macdSignalValue;
+      
+      if (config.macdLineAboveZero) {
+        macdCondition = macdCondition && macdLineValue > 0;
+      }
+    }
     
-    // Step 5: CVD (> 0 with slope > 0, last 3-5 candles)
-    const cvdValue = indicators.cvd || 0;
-    const cvdSlopeValue = indicators.cvdSlope || 0;
-    const cvdCondition = cvdValue > 0 && cvdSlopeValue > 0;
+    // Step 5: CVD based on config
+    let cvdCondition = true;
+    if (config.cvdSlopePositive) {
+      const cvdSlopeValue = indicators.cvdSlope || 0;
+      cvdCondition = cvdSlopeValue > 0;
+      
+      if (config.cvdAboveZero) {
+        const cvdValue = indicators.cvd || 0;
+        cvdCondition = cvdCondition && cvdValue > 0;
+      }
+    }
     
-    // Step 6: Price breakout above Bollinger Middle
-    const bollingerMiddleValue = indicators.bollingerMiddle || 0;
-    const bollingerCondition = currentPrice > bollingerMiddleValue;
+    // Step 6: Price breakout above Bollinger Middle based on config
+    let bollingerCondition = true;
+    if (config.useBollingerMiddle) {
+      const bollingerMiddleValue = indicators.bollingerMiddle || 0;
+      bollingerCondition = currentPrice > bollingerMiddleValue;
+    }
     
     const conditions = {
       volume: volumeCondition,
@@ -68,12 +93,27 @@ const PumpStrategy = ({ symbol, currentPrice, indicators }: PumpStrategyProps) =
     // Enhanced logging for condition proximity
     if (!allConditionsMet) {
       const proximityLogs = [];
-      if (!volumeCondition) proximityLogs.push(`Volume: ${volumeValue.toLocaleString()} vs Avg*2=${(avgVolumeValue * 2).toLocaleString()}`);
-      if (!rsiCondition) proximityLogs.push(`RSI: ${rsiValue.toFixed(2)} (need 50-85)`);
-      if (!maCondition) proximityLogs.push(`MA: Price=${currentPrice.toFixed(4)} vs EMA13=${ma13Value.toFixed(4)}, EMA5=${ma5Value.toFixed(4)} vs EMA13=${ma13Value.toFixed(4)}`);
-      if (!macdCondition) proximityLogs.push(`MACD: Line=${macdLineValue.toFixed(6)} vs Signal=${macdSignalValue.toFixed(6)} (Line must be > Signal and > 0)`);
-      if (!cvdCondition) proximityLogs.push(`CVD: ${cvdValue.toLocaleString()} (need > 0), Slope: ${cvdSlopeValue.toFixed(2)} (need > 0)`);
-      if (!bollingerCondition) proximityLogs.push(`BB: Price=${currentPrice.toFixed(4)} vs BBMiddle=${bollingerMiddleValue.toFixed(4)}`);
+      if (!volumeCondition) proximityLogs.push(`Volume: ${volumeValue.toLocaleString()} vs Avg*${config.volumeMultiplier}=${(avgVolumeValue * config.volumeMultiplier).toLocaleString()}`);
+      if (!rsiCondition) proximityLogs.push(`RSI: ${rsiValue.toFixed(2)} (need ${config.rsiMin}-${config.rsiMax})`);
+      if (!maCondition && config.useMA5 && config.useMA13) {
+        const ma5Value = indicators.ma5 || 0;
+        const ma13Value = indicators.ma13 || 0;
+        proximityLogs.push(`MA: Price=${currentPrice.toFixed(4)} vs EMA13=${ma13Value.toFixed(4)}, EMA5=${ma5Value.toFixed(4)} vs EMA13=${ma13Value.toFixed(4)}`);
+      }
+      if (!macdCondition && config.macdLineAboveSignal) {
+        const macdLineValue = indicators.macd?.line || 0;
+        const macdSignalValue = indicators.macd?.signal || 0;
+        proximityLogs.push(`MACD: Line=${macdLineValue.toFixed(6)} vs Signal=${macdSignalValue.toFixed(6)} (Line must be > Signal and > 0)`);
+      }
+      if (!cvdCondition && config.cvdSlopePositive) {
+        const cvdValue = indicators.cvd || 0;
+        const cvdSlopeValue = indicators.cvdSlope || 0;
+        proximityLogs.push(`CVD: ${cvdValue.toLocaleString()} (need > 0), Slope: ${cvdSlopeValue.toFixed(2)} (need > 0)`);
+      }
+      if (!bollingerCondition && config.useBollingerMiddle) {
+        const bollingerMiddleValue = indicators.bollingerMiddle || 0;
+        proximityLogs.push(`BB: Price=${currentPrice.toFixed(4)} vs BBMiddle=${bollingerMiddleValue.toFixed(4)}`);
+      }
       
       console.log(`📊 ${symbol} Pump conditions not met:`, proximityLogs.join(', '));
     } else {
@@ -133,14 +173,17 @@ const PumpStrategy = ({ symbol, currentPrice, indicators }: PumpStrategyProps) =
   return (
     <div className="space-y-4">
       <div className="p-4 neo-border rounded-lg bg-card/50">
-        <h3 className="text-lg font-semibold text-primary mb-4">Pump Mode Strategy - {symbol}</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-primary">Pump Mode Strategy - {symbol}</h3>
+          <StrategyConfigDialog symbol={symbol} strategy="pump" />
+        </div>
         
         <div className="grid grid-cols-1 gap-3 mb-4">
           {/* Volume Check */}
           <div className={`p-3 rounded-lg ${strategy.conditions.volume ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
             <div className="flex justify-between items-center">
-              <span className="font-medium">Volume &gt; 2x Avg</span>
-              <span className="font-mono">{(indicators.volume || 0).toLocaleString()} / {((indicators.avgVolume || 0) * 2).toLocaleString()}</span>
+              <span className="font-medium">Volume &gt; {config.volumeMultiplier}x Avg</span>
+              <span className="font-mono">{(indicators.volume || 0).toLocaleString()} / {((indicators.avgVolume || 0) * config.volumeMultiplier).toLocaleString()}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 strategy.conditions.volume ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
               }`}>
@@ -152,7 +195,7 @@ const PumpStrategy = ({ symbol, currentPrice, indicators }: PumpStrategyProps) =
           {/* RSI Check */}
           <div className={`p-3 rounded-lg ${strategy.conditions.rsi ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
             <div className="flex justify-between items-center">
-              <span className="font-medium">RSI (50-85)</span>
+              <span className="font-medium">RSI ({config.rsiMin}-{config.rsiMax})</span>
               <span className="font-mono">{(indicators.rsi || 0).toFixed(2)}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 strategy.conditions.rsi ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
@@ -163,56 +206,64 @@ const PumpStrategy = ({ symbol, currentPrice, indicators }: PumpStrategyProps) =
           </div>
 
           {/* Moving Averages Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.movingAverages ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">Price &gt; EMA13 &amp; EMA5 &gt; EMA13</span>
-              <span className="font-mono">{currentPrice.toFixed(4)} / {(indicators.ma13 || 0).toFixed(4)} / {(indicators.ma5 || 0).toFixed(4)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.movingAverages ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.movingAverages ? '✓' : '✗'}
-              </span>
+          {config.useMA5 && config.useMA13 && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.movingAverages ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Price &gt; EMA13 &amp; EMA5 &gt; EMA13</span>
+                <span className="font-mono">{currentPrice.toFixed(4)} / {(indicators.ma13 || 0).toFixed(4)} / {(indicators.ma5 || 0).toFixed(4)}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.movingAverages ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.movingAverages ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* MACD Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.macd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">MACD Line &gt; Signal &amp; &gt; 0</span>
-              <span className="font-mono">{(indicators.macd?.line || 0).toFixed(6)} / {(indicators.macd?.signal || 0).toFixed(6)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.macd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.macd ? '✓' : '✗'}
-              </span>
+          {config.macdLineAboveSignal && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.macd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">MACD Line &gt; Signal{config.macdLineAboveZero ? ' &amp; &gt; 0' : ''}</span>
+                <span className="font-mono">{(indicators.macd?.line || 0).toFixed(6)} / {(indicators.macd?.signal || 0).toFixed(6)}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.macd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.macd ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* CVD Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.cvd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">CVD &gt; 0 &amp; Slope &gt; 0 (3-5 candles)</span>
-              <span className="font-mono">{(indicators.cvd || 0).toLocaleString()} / Slope: {(indicators.cvdSlope || 0).toFixed(2)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.cvd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.cvd ? '✓' : '✗'}
-              </span>
+          {config.cvdSlopePositive && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.cvd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">CVD Slope &gt; 0 ({config.cvdLookbackCandles} candles){config.cvdAboveZero ? ' &amp; CVD &gt; 0' : ''}</span>
+                <span className="font-mono">{(indicators.cvdSlope || 0).toFixed(2)} ({(indicators.cvd || 0).toLocaleString()})</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.cvd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.cvd ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Bollinger Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.bollinger ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">Price &gt; BB Middle</span>
-              <span className="font-mono">{currentPrice.toFixed(4)} &gt; {(indicators.bollingerMiddle || 0).toFixed(4)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.bollinger ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.bollinger ? '✓' : '✗'}
-              </span>
+          {config.useBollingerMiddle && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.bollinger ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Price &gt; BB Middle</span>
+                <span className="font-mono">{currentPrice.toFixed(4)} &gt; {(indicators.bollingerMiddle || 0).toFixed(4)}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.bollinger ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.bollinger ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Entry Table */}
@@ -234,12 +285,12 @@ const PumpStrategy = ({ symbol, currentPrice, indicators }: PumpStrategyProps) =
                   <TableCell>-</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>Take Profit (+3%)</TableCell>
+                  <TableCell>Take Profit (+{config.takeProfitPercent}%)</TableCell>
                   <TableCell>${strategy.takeProfit.toFixed(4)}</TableCell>
                   <TableCell className="text-green-400">+${(strategy.takeProfit - strategy.entryPrice).toFixed(4)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>Stop Loss (-1%)</TableCell>
+                  <TableCell>Stop Loss (-{config.stopLossPercent}%)</TableCell>
                   <TableCell>${strategy.stopLoss.toFixed(4)}</TableCell>
                   <TableCell className="text-red-400">-${(strategy.entryPrice - strategy.stopLoss).toFixed(4)}</TableCell>
                 </TableRow>

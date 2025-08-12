@@ -2,6 +2,8 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { signalPersistence } from '../utils/signalPersistence';
 import type { IndicatorValues } from '../utils/indicators';
+import { strategyConditionsManager } from '../utils/strategyConditions';
+import StrategyConfigDialog from './StrategyConfigDialog';
 
 interface IntradayStrategyProps {
   symbol: string;
@@ -20,39 +22,62 @@ const IntradayStrategy = ({ symbol, currentPrice, indicators }: IntradayStrategy
     );
   }
 
-  // Relaxed intraday strategy conditions
+  // Get configurable conditions for this symbol
+  const config = strategyConditionsManager.getConditions(symbol, 'intraday');
+
+  // Dynamic intraday strategy conditions based on configuration
   const checkIntradayConditions = () => {
     const entryPrice = currentPrice;
-    const takeProfit = entryPrice * 1.02; // +2% for intraday
-    const stopLoss = entryPrice * 0.99; // -1% stop loss
+    const takeProfit = entryPrice * (1 + config.takeProfitPercent / 100);
+    const stopLoss = entryPrice * (1 - config.stopLossPercent / 100);
     
-    // Step 1: Check Bollinger Bands (Price ≤ BBLower × 1.01) - Relaxed multiplier
-    const bollingerLowerValue = indicators.bollingerLower || 0;
-    const bollingerCondition = currentPrice <= bollingerLowerValue * 1.01;
+    // Step 1: Check Bollinger Bands based on config
+    let bollingerCondition = true;
+    if (config.useBollingerLower) {
+      const bollingerLowerValue = indicators.bollingerLower || 0;
+      bollingerCondition = currentPrice <= bollingerLowerValue * config.bollingerMultiplier;
+    }
     
-    // Step 2: Check MACD (MACD Line > Signal Line)
-    const macdLineValue = indicators.macd?.line || 0;
-    const macdSignalValue = indicators.macd?.signal || 0;
-    const macdCondition = macdLineValue > macdSignalValue;
+    // Step 2: Check MACD based on config
+    let macdCondition = true;
+    if (config.macdLineAboveSignal) {
+      const macdLineValue = indicators.macd?.line || 0;
+      const macdSignalValue = indicators.macd?.signal || 0;
+      macdCondition = macdLineValue > macdSignalValue;
+      
+      if (config.macdLineAboveZero) {
+        macdCondition = macdCondition && macdLineValue > 0;
+      }
+    }
     
-    // Step 3: Check RSI (35 < RSI < 65) - Relaxed range
+    // Step 3: Check RSI based on config
     const rsiValue = indicators.rsi || 0;
-    const rsiCondition = rsiValue > 35 && rsiValue < 65;
+    const rsiCondition = rsiValue >= config.rsiMin && rsiValue <= config.rsiMax;
     
-    // Step 4: Check Moving Averages (Price > EMA34 AND EMA20 > EMA34)
-    const ma20Value = indicators.ma20 || 0;
-    const ma34Value = indicators.ma34 || 0;
-    const maCondition = currentPrice > ma34Value && ma20Value > ma34Value;
+    // Step 4: Check Moving Averages based on config
+    let maCondition = true;
+    if (config.useMA20 && config.useMA34) {
+      const ma20Value = indicators.ma20 || 0;
+      const ma34Value = indicators.ma34 || 0;
+      maCondition = currentPrice > ma34Value && ma20Value > ma34Value;
+    }
     
-    // Step 5: Check Volume (> AvgVolume × 1.2) - Relaxed from 1.5x
+    // Step 5: Check Volume based on config
     const volumeValue = indicators.volume || 0;
     const avgVolumeValue = indicators.avgVolume || 0;
-    const volumeCondition = volumeValue > avgVolumeValue * 1.2;
+    const volumeCondition = volumeValue > avgVolumeValue * config.volumeMultiplier;
     
-    // Step 6: Check CVD (> 0 with increasing slope, last 10 candles)
-    const cvdValue = indicators.cvd || 0;
-    const cvdSlopeValue = indicators.cvdSlope || 0;
-    const cvdCondition = cvdValue > 0 && cvdSlopeValue > 0;
+    // Step 6: Check CVD based on config
+    let cvdCondition = true;
+    if (config.cvdSlopePositive) {
+      const cvdSlopeValue = indicators.cvdSlope || 0;
+      cvdCondition = cvdSlopeValue > 0;
+      
+      if (config.cvdAboveZero) {
+        const cvdValue = indicators.cvd || 0;
+        cvdCondition = cvdCondition && cvdValue > 0;
+      }
+    }
     
     const conditions = {
       bollingerBands: bollingerCondition,
@@ -68,12 +93,27 @@ const IntradayStrategy = ({ symbol, currentPrice, indicators }: IntradayStrategy
     // Enhanced logging for condition proximity
     if (!allConditionsMet) {
       const proximityLogs = [];
-      if (!bollingerCondition) proximityLogs.push(`BB: Price=${currentPrice.toFixed(4)} vs BBLower*1.01=${(bollingerLowerValue * 1.01).toFixed(4)}`);
-      if (!macdCondition) proximityLogs.push(`MACD: Line=${macdLineValue.toFixed(6)} vs Signal=${macdSignalValue.toFixed(6)}`);
-      if (!rsiCondition) proximityLogs.push(`RSI: ${rsiValue.toFixed(2)} (need 35-65)`);
-      if (!maCondition) proximityLogs.push(`MA: Price=${currentPrice.toFixed(4)} vs EMA34=${ma34Value.toFixed(4)}, EMA20=${ma20Value.toFixed(4)} vs EMA34=${ma34Value.toFixed(4)}`);
-      if (!volumeCondition) proximityLogs.push(`Volume: ${volumeValue.toLocaleString()} vs Avg*1.2=${(avgVolumeValue * 1.2).toLocaleString()}`);
-      if (!cvdCondition) proximityLogs.push(`CVD: ${cvdValue.toLocaleString()} (need > 0), Slope: ${cvdSlopeValue.toFixed(2)} (need > 0)`);
+      if (!bollingerCondition && config.useBollingerLower) {
+        const bollingerLowerValue = indicators.bollingerLower || 0;
+        proximityLogs.push(`BB: Price=${currentPrice.toFixed(4)} vs BBLower*${config.bollingerMultiplier}=${(bollingerLowerValue * config.bollingerMultiplier).toFixed(4)}`);
+      }
+      if (!macdCondition && config.macdLineAboveSignal) {
+        const macdLineValue = indicators.macd?.line || 0;
+        const macdSignalValue = indicators.macd?.signal || 0;
+        proximityLogs.push(`MACD: Line=${macdLineValue.toFixed(6)} vs Signal=${macdSignalValue.toFixed(6)}`);
+      }
+      if (!rsiCondition) proximityLogs.push(`RSI: ${rsiValue.toFixed(2)} (need ${config.rsiMin}-${config.rsiMax})`);
+      if (!maCondition && config.useMA20 && config.useMA34) {
+        const ma20Value = indicators.ma20 || 0;
+        const ma34Value = indicators.ma34 || 0;
+        proximityLogs.push(`MA: Price=${currentPrice.toFixed(4)} vs EMA34=${ma34Value.toFixed(4)}, EMA20=${ma20Value.toFixed(4)} vs EMA34=${ma34Value.toFixed(4)}`);
+      }
+      if (!volumeCondition) proximityLogs.push(`Volume: ${volumeValue.toLocaleString()} vs Avg*${config.volumeMultiplier}=${(avgVolumeValue * config.volumeMultiplier).toLocaleString()}`);
+      if (!cvdCondition && config.cvdSlopePositive) {
+        const cvdValue = indicators.cvd || 0;
+        const cvdSlopeValue = indicators.cvdSlope || 0;
+        proximityLogs.push(`CVD: ${cvdValue.toLocaleString()} (need > 0), Slope: ${cvdSlopeValue.toFixed(2)} (need > 0)`);
+      }
       
       console.log(`📊 ${symbol} Intraday conditions not met:`, proximityLogs.join(', '));
     } else {
@@ -133,39 +173,46 @@ const IntradayStrategy = ({ symbol, currentPrice, indicators }: IntradayStrategy
   return (
     <div className="space-y-4">
       <div className="p-4 neo-border rounded-lg bg-card/50">
-        <h3 className="text-lg font-semibold text-primary mb-4">Intraday Strategy - {symbol}</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-primary">Intraday Strategy - {symbol}</h3>
+          <StrategyConfigDialog symbol={symbol} strategy="intraday" />
+        </div>
         
         <div className="grid grid-cols-1 gap-3 mb-4">
           {/* Bollinger Bands Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.bollingerBands ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">Price ≤ BBLower × 1.01</span>
-              <span className="font-mono">{currentPrice.toFixed(4)} ≤ {((indicators.bollingerLower || 0) * 1.01).toFixed(4)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.bollingerBands ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.bollingerBands ? '✓' : '✗'}
-              </span>
+          {config.useBollingerLower && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.bollingerBands ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Price ≤ BBLower × {config.bollingerMultiplier}</span>
+                <span className="font-mono">{currentPrice.toFixed(4)} ≤ {((indicators.bollingerLower || 0) * config.bollingerMultiplier).toFixed(4)}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.bollingerBands ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.bollingerBands ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* MACD Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.macd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">MACD Line &gt; Signal</span>
-              <span className="font-mono">{(indicators.macd?.line || 0).toFixed(6)} / {(indicators.macd?.signal || 0).toFixed(6)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.macd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.macd ? '✓' : '✗'}
-              </span>
+          {config.macdLineAboveSignal && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.macd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">MACD Line &gt; Signal{config.macdLineAboveZero ? ' &amp; &gt; 0' : ''}</span>
+                <span className="font-mono">{(indicators.macd?.line || 0).toFixed(6)} / {(indicators.macd?.signal || 0).toFixed(6)}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.macd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.macd ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* RSI Check */}
           <div className={`p-3 rounded-lg ${strategy.conditions.rsi ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
             <div className="flex justify-between items-center">
-              <span className="font-medium">RSI (35-65)</span>
+              <span className="font-medium">RSI ({config.rsiMin}-{config.rsiMax})</span>
               <span className="font-mono">{(indicators.rsi || 0).toFixed(2)}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 strategy.conditions.rsi ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
@@ -176,23 +223,25 @@ const IntradayStrategy = ({ symbol, currentPrice, indicators }: IntradayStrategy
           </div>
 
           {/* Moving Averages Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.movingAverages ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">Price &gt; EMA34 &amp; EMA20 &gt; EMA34</span>
-              <span className="font-mono">{currentPrice.toFixed(4)} / {(indicators.ma34 || 0).toFixed(4)} / {(indicators.ma20 || 0).toFixed(4)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.movingAverages ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.movingAverages ? '✓' : '✗'}
-              </span>
+          {config.useMA20 && config.useMA34 && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.movingAverages ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Price &gt; EMA34 &amp; EMA20 &gt; EMA34</span>
+                <span className="font-mono">{currentPrice.toFixed(4)} / {(indicators.ma34 || 0).toFixed(4)} / {(indicators.ma20 || 0).toFixed(4)}</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.movingAverages ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.movingAverages ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Volume Check */}
           <div className={`p-3 rounded-lg ${strategy.conditions.volume ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
             <div className="flex justify-between items-center">
-              <span className="font-medium">Volume &gt; 1.2x Avg</span>
-              <span className="font-mono">{(indicators.volume || 0).toLocaleString()} / {((indicators.avgVolume || 0) * 1.2).toLocaleString()}</span>
+              <span className="font-medium">Volume &gt; {config.volumeMultiplier}x Avg</span>
+              <span className="font-mono">{(indicators.volume || 0).toLocaleString()} / {((indicators.avgVolume || 0) * config.volumeMultiplier).toLocaleString()}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
                 strategy.conditions.volume ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
               }`}>
@@ -202,17 +251,19 @@ const IntradayStrategy = ({ symbol, currentPrice, indicators }: IntradayStrategy
           </div>
 
           {/* CVD Check */}
-          <div className={`p-3 rounded-lg ${strategy.conditions.cvd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">CVD &gt; 0 &amp; Slope &gt; 0 (10 candles)</span>
-              <span className="font-mono">{(indicators.cvd || 0).toLocaleString()} / Slope: {(indicators.cvdSlope || 0).toFixed(2)}</span>
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                strategy.conditions.cvd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
-              }`}>
-                {strategy.conditions.cvd ? '✓' : '✗'}
-              </span>
+          {config.cvdSlopePositive && (
+            <div className={`p-3 rounded-lg ${strategy.conditions.cvd ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <div className="flex justify-between items-center">
+                <span className="font-medium">CVD Slope &gt; 0 ({config.cvdLookbackCandles} candles){config.cvdAboveZero ? ' &amp; CVD &gt; 0' : ''}</span>
+                <span className="font-mono">{(indicators.cvdSlope || 0).toFixed(2)} ({(indicators.cvd || 0).toLocaleString()})</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  strategy.conditions.cvd ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'
+                }`}>
+                  {strategy.conditions.cvd ? '✓' : '✗'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Entry Table */}
@@ -234,12 +285,12 @@ const IntradayStrategy = ({ symbol, currentPrice, indicators }: IntradayStrategy
                   <TableCell>-</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>Take Profit (+2%)</TableCell>
+                  <TableCell>Take Profit (+{config.takeProfitPercent}%)</TableCell>
                   <TableCell>${strategy.takeProfit.toFixed(4)}</TableCell>
                   <TableCell className="text-green-400">+${(strategy.takeProfit - strategy.entryPrice).toFixed(4)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>Stop Loss (-1%)</TableCell>
+                  <TableCell>Stop Loss (-{config.stopLossPercent}%)</TableCell>
                   <TableCell>${strategy.stopLoss.toFixed(4)}</TableCell>
                   <TableCell className="text-red-400">-${(strategy.entryPrice - strategy.stopLoss).toFixed(4)}</TableCell>
                 </TableRow>
