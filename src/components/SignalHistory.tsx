@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { signalPersistence, type TradingSignal } from '../utils/signalPersistence';
 import GoogleSheetsConfig from './GoogleSheetsConfig';
 import { fileLogger } from '../services/fileLogger';
-import { googleSheetsService } from '../services/googleSheetsService';
+import { googleSheetsService, GoogleSheetsService } from '../services/googleSheetsService';
 
 const SignalHistory = () => {
   const [signals, setSignals] = useState<TradingSignal[]>([]);
@@ -240,7 +240,7 @@ const SignalHistory = () => {
               <h3 className="text-lg font-semibold text-primary mb-4">CSV Headers for Google Sheets</h3>
               <div className="p-3 bg-muted rounded-lg">
                 <code className="text-xs break-all">
-                  {googleSheetsService.constructor.getCSVHeaders()}
+                  {GoogleSheetsService.getCSVHeaders()}
                 </code>
               </div>
               <p className="text-sm text-muted-foreground mt-2">
