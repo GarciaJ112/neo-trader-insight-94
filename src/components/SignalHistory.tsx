@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { signalPersistence, type TradingSignal } from '../utils/signalPersistence';
 import GoogleSheetsConfig from './GoogleSheetsConfig';
 import { fileLogger } from '../services/fileLogger';
+import { googleSheetsService } from '../services/googleSheetsService';
 
 const SignalHistory = () => {
   const [signals, setSignals] = useState<TradingSignal[]>([]);
