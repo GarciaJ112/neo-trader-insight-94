@@ -1,3 +1,4 @@
+
 interface LogEntry {
   timestamp: string;
   level: 'INFO' | 'WARN' | 'ERROR';
@@ -12,7 +13,7 @@ class FileLogger {
 
   log(level: 'INFO' | 'WARN' | 'ERROR', message: string, data?: any): void {
     const entry: LogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(), // This is already UTC
       level,
       message,
       data
@@ -28,7 +29,7 @@ class FileLogger {
     // Store in localStorage for persistence
     localStorage.setItem('trading_logs', JSON.stringify(this.logs));
     
-    // Also log to console for development
+    // Also log to console for development with UTC timestamp
     console.log(`[${entry.timestamp}] ${level}: ${message}`, data || '');
   }
 
