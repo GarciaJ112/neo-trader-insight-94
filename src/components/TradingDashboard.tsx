@@ -41,13 +41,6 @@ const TradingDashboard = () => {
             </TabsContent>
           ))}
         </Tabs>
-
-        <div className="mt-8 text-center text-sm text-muted-foreground">
-          <p>
-            🔴 Red background: Short Position value
-            🟢 Green background: Long Position value
-          </p>
-        </div>
       </div>
     </div>
   );
